@@ -44,3 +44,8 @@ ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx
   ${VTKGraphConversionsDir}/vtkPolyDataToGraph.cxx)
 TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries})
 install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
+
+SET(CurrentExe "vo-skel2poly")
+ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx)
+TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries})
+install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
