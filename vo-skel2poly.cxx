@@ -1,13 +1,13 @@
 /////program to convert a 3D voxel-skeleton into a vtkPolyData (better to save than vtkGraph with points)
 /////using Examples/Iterators/NeighborhoodIterators5.cxx and Examples/Iterators/NeighborhoodIterators6.cxx (for jumping)
-//_01: iterating over whole image (i.e. not jumping adjacent fg-pixels), creating coincident points (i.e. lines are not connected to each other)
-
+//_01: iterating over whole image (i.e. not jumping adjacent fg-pixels)
+//_01b: using itkConstNeighborhoodIteratorWithOnlyIndex (no SetPixe()!)
 
 //#include <itkImage.h>
 #include <itkImageFileReader.h>
 #include <itkImageFileWriter.h>
-#include <itkNeighborhoodIterator.h>
-//#include <itkConstNeighborhoodIteratorWithOnlyIndex.h> //needs itk >= 4.3.x
+//#include <itkConstNeighborhoodIterator.h>
+#include <itkConstNeighborhoodIteratorWithOnlyIndex.h> //needs itk >= 4.3.x
 
 #include <vtkSmartPointer.h>
 #include <vtkLine.h>
@@ -63,8 +63,8 @@ int main(int argc, char *argv[])
     InputImageType::Pointer image= reader->GetOutput();
 
 
-    typedef itk::NeighborhoodIterator< InputImageType > NeighborhoodIteratorType;
-//typedef itk::ConstNeighborhoodIteratorWithOnlyIndex< InputImageType > NeighborhoodIteratorType;
+    //typedef itk::ConstNeighborhoodIterator< InputImageType > NeighborhoodIteratorType;
+    typedef itk::ConstNeighborhoodIteratorWithOnlyIndex< InputImageType > NeighborhoodIteratorType;
 
 
     NeighborhoodIteratorType::RadiusType radius;
@@ -91,33 +91,24 @@ int main(int argc, char *argv[])
     vtkSmartPointer<vtkMergePoints> points= vtkSmartPointer<vtkMergePoints>::New(); //faster than vtkPointLocator 
     vtkSmartPointer<vtkCellArray> lines= vtkSmartPointer<vtkCellArray>::New();
 
-    std::cout << "Starting iteration!" << std::endl;
     //for (it.GoToBegin(), out.GoToBegin(); !it.IsAtEnd(); ++it, ++out)
     for (it.GoToBegin(); !it.IsAtEnd(); ++it)
         {
 
-        //std::cout << "Iteration at: " << it.GetIndex() << ": " << it.GetCenterNeighborhoodIndex() << std::endl;
-
-        InputPixelType cpv= it.GetCenterPixel(); //ConstNeighborhoodIterator
-        //InputPixelType cpv= it.GetCenterValue(); //ConstNeighborhoodIteratorWithOnlyIndex
+        //InputPixelType cpv= it.GetCenterPixel(); //ConstNeighborhoodIterator
+        InputPixelType cpv= it.GetCenterValue(); //ConstNeighborhoodIteratorWithOnlyIndex
         if (cpv == fg){
-            std::cout << "fg point found at: " << it.GetIndex() << ": " << it.GetCenterNeighborhoodIndex(); //it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
             //point0ii= image->ComputeIndex(it.GetOffset(0));
-            point0ii= it.GetIndex(it.GetCenterNeighborhoodIndex()); //it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
-            //point0ii= it.GetCenterNeighborhoodIndex();//ConstNeighborhoodIteratorWithOnlyIndex
+            point0ii= it.GetCenterNeighborhoodIndex();
             point0[0]= double(point0ii[0]);
             point0[1]= double(point0ii[1]);
             point0[2]= double(point0ii[2]);
-            std::cout << ": " << point0ii << std::endl;
             if (firstPoint){//all others should already be added in a previous iteration!?
-                //points->InsertNextPoint(point0ii);
-                //points->InsertNextPoint(point0ii[0], point0ii[1], point0ii[2]);
-                //points->InsertNextPoint(double(point0ii[0]), double(point0ii[1]), double(point0ii[2]));
-                std::cout << "First point: " << point0 << std::endl;
+                //points->InsertNextPoint(point0[0], point0[1], point0[2]);
                 points->InsertNextPoint(point0);
                 firstPoint= false;
                 }
-            it.SetPixel(it.GetCenterNeighborhoodIndex(), doneValue); //to keept track where we have worked already //not available in ConstNeighborhoodIteratorWithOnlyIndex
+            it.Set(doneValue); //to keept track where we have worked already
             //doneMap->SetPixel(it.GetOffset(0), doneValue);
             //for (unsigned i = it.Begin(); i != it.End(); i++)//not skipping centre pixel???
             for (unsigned i = 1; i < it.Size(); i++){ //skipping centre pixel???
