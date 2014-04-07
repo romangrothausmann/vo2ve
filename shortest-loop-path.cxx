@@ -24,53 +24,9 @@
 
 
 ////from http://www.vtk.org/Wiki/VTK/Examples/Cxx/PolyData/VertexConnectivity
-vtkSmartPointer<vtkIdList> GetConnectedVertices(vtkSmartPointer<vtkPolyData> mesh, int id);
+//vtkSmartPointer<vtkIdList> GetConnectedVertices(vtkSmartPointer<vtkPolyData> mesh, int id);
 
-
-vtkSmartPointer<vtkIdList> GetConnectedVertices(vtkSmartPointer<vtkPolyData> mesh, int id){
-
-  vtkSmartPointer<vtkIdList> connectedVertices = vtkSmartPointer<vtkIdList>::New();
-
-
-  //get all cells that vertex 'id' is a part of
-  vtkSmartPointer<vtkIdList> cellIdList = vtkSmartPointer<vtkIdList>::New();
-  mesh->BuildLinks();
-  mesh->GetPointCells(id, cellIdList); //Make sure that routine BuildLinks() has been called. 
  
-  
-  cout << "Vertex 0 is used in cells ";
-  for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++)
-    {
-    cout << cellIdList->GetId(i) << ", ";
-    }
-  cout << endl;
-  
- 
-  for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++)
-    {
-    //cout << "id " << i << " : " << cellIdList->GetId(i) << endl;
- 
-    vtkSmartPointer<vtkIdList> pointIdList =  vtkSmartPointer<vtkIdList>::New();
-    //mesh-> BuildCells(); //not needed
-    mesh->GetCellPoints(cellIdList->GetId(i), pointIdList);
- 
-    cout << "End points are " << pointIdList->GetId(0) << " and " << pointIdList->GetId(1) << endl;
- 
-    if(pointIdList->GetId(0) != id)
-      {
-      //cout << "Connected to " << pointIdList->GetId(0) << endl;
-      connectedVertices->InsertNextId(pointIdList->GetId(0));
-      }
-    else
-      {
-      //cout << "Connected to " << pointIdList->GetId(1) << endl;
-      connectedVertices->InsertNextId(pointIdList->GetId(1));
-      }
-    }
- 
-  return connectedVertices;
-}
-
 int main(int argc, char* argv[]){
 
     if( argc <= 3 ) {
@@ -121,8 +77,51 @@ int main(int argc, char* argv[]){
    
     std::cout << "Prepared mesh!" << std::endl;
 
-    vtkSmartPointer<vtkIdList> connectedVertices = GetConnectedVertices(mesh, sVertex);
+    vtkIdType id= sVertex;
+
+    ////get connected vertices and the cells connecting them
+    vtkSmartPointer<vtkIdList> connectedVertices = vtkSmartPointer<vtkIdList>::New();
+
+    //get all cells that vertex 'id' is a part of
+    vtkSmartPointer<vtkIdList> cellIdList = vtkSmartPointer<vtkIdList>::New();
+    mesh->BuildLinks();
+    mesh->GetPointCells(id, cellIdList); //Make sure that routine BuildLinks() has been called. 
  
+    if (cellIdList->GetNumberOfIds() != 2){
+      std::cerr << "Point not connected to just two lines (cells)! # of connected cells: "<< cellIdList->GetNumberOfIds() << "loop splitting ambiguous!"<< std::endl;
+      return EXIT_FAILURE;
+    }
+    /*
+    cout << "Vertex 0 is used in cells ";
+    for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++)
+      {
+	cout << cellIdList->GetId(i) << ", ";
+      }
+    cout << endl;
+    */
+ 
+    for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++)
+      {
+	//cout << "id " << i << " : " << cellIdList->GetId(i) << endl;
+ 
+	vtkSmartPointer<vtkIdList> pointIdList =  vtkSmartPointer<vtkIdList>::New();
+	//mesh-> BuildCells(); //not needed
+	mesh->GetCellPoints(cellIdList->GetId(i), pointIdList);
+ 
+	cout << "End points are " << pointIdList->GetId(0) << " and " << pointIdList->GetId(1) << endl;
+ 
+	if(pointIdList->GetId(0) != id)
+	  {
+	    //cout << "Connected to " << pointIdList->GetId(0) << endl;
+	    connectedVertices->InsertNextId(pointIdList->GetId(0));
+	  }
+	else
+	  {
+	    //cout << "Connected to " << pointIdList->GetId(1) << endl;
+	    connectedVertices->InsertNextId(pointIdList->GetId(1));
+	  }
+      }
+
 
     if (connectedVertices->GetNumberOfIds() > 2){
       std::cerr << "More than just one connected point (" << connectedVertices->GetNumberOfIds() << "), endpoint ambiguous!"<< std::endl;
@@ -131,8 +130,11 @@ int main(int argc, char* argv[]){
 
     eVertex= connectedVertices->GetId(0);
     std::cout << "Endpoint unambiguous! Using: "<< eVertex << std::endl;
-      
-
+    
+    ////split open line connection between sVertex and eVertex
+    mesh->DeleteCell(cellIdList->GetId(0)); //has to correspond to eVertex= connectedVertices->GetId(0);
+    //mesh->RemoveDeletedCells(); 	
+    std::cout << "Deleted cell: "<< cellIdList->GetId(0) << std::endl;
 
 
     VTK_CREATE(vtkDijkstraGraphGeodesicPath, dggp);
