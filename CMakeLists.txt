@@ -55,6 +55,11 @@ ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx)
 TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries} ${ITK_LIBRARIES})
 install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
 
+SET(CurrentExe "fill_loops")
+ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx  ${VTKGraphConversionsDir}/vtkPolyDataToGraph.cxx)
+TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries} ${ITK_LIBRARIES})
+install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
+
 
 
 # ##ToDo
