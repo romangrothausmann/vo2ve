@@ -51,7 +51,6 @@ TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries} ${ITK_LIBRARIES})
 install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
 
 SET(CurrentExe "shortest-loop-path")
-ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx
-  ${VTKGraphConversionsDir}/vtkPolyDataToGraph.cxx)
+ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx)
 TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries} ${ITK_LIBRARIES})
 install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
