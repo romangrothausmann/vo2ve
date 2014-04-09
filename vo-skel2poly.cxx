@@ -14,9 +14,11 @@
 #include <vtkMergePoints.h>
 #include <vtkCellArray.h> //#include <vtkLines.h>
 #include <vtkPolyData.h>
+#include <vtkCleanPolyData.h>
 
 #include <vtkXMLPolyDataWriter.h>//for vtp-files 
 
+#define VERBOSE 0
 
 const unsigned int Dimension = 3;
 
@@ -41,7 +43,7 @@ int main(int argc, char *argv[])
         }
 
     if(!(strcasestr(argv[2],".vtp"))) {
-        std::cout << "The output should end with .vtp" << std::endl; 
+        std::cerr << "The output should end with .vtp" << std::endl; 
         return -1;
         }
 
@@ -55,8 +57,8 @@ int main(int argc, char *argv[])
         }
     catch ( itk::ExceptionObject &err)
         {
-        std::cout << "ExceptionObject caught !" << std::endl;
-        std::cout << err << std::endl;
+        std::cerr << "ExceptionObject caught !" << std::endl;
+        std::cerr << err << std::endl;
         return -1;
         }
 
@@ -64,7 +66,7 @@ int main(int argc, char *argv[])
 
 
     typedef itk::NeighborhoodIterator< InputImageType > NeighborhoodIteratorType;
-//typedef itk::ConstNeighborhoodIteratorWithOnlyIndex< InputImageType > NeighborhoodIteratorType;
+    //typedef itk::ConstNeighborhoodIteratorWithOnlyIndex< InputImageType > NeighborhoodIteratorType;
 
 
     NeighborhoodIteratorType::RadiusType radius;
@@ -87,8 +89,7 @@ int main(int argc, char *argv[])
     bool firstPoint= true;
     InputPixelType fg= 255;
     OutputPixelType doneValue= 1;
-    //vtkSmartPointer<vtkPoints> points= vtkSmartPointer<vtkPoints>::New();
-    vtkSmartPointer<vtkMergePoints> points= vtkSmartPointer<vtkMergePoints>::New(); //faster than vtkPointLocator 
+    vtkSmartPointer<vtkPoints> points= vtkSmartPointer<vtkPoints>::New();
     vtkSmartPointer<vtkCellArray> lines= vtkSmartPointer<vtkCellArray>::New();
 
     std::cout << "Starting iteration!" << std::endl;
@@ -101,22 +102,16 @@ int main(int argc, char *argv[])
         InputPixelType cpv= it.GetCenterPixel(); //ConstNeighborhoodIterator
         //InputPixelType cpv= it.GetCenterValue(); //ConstNeighborhoodIteratorWithOnlyIndex
         if (cpv == fg){
-            std::cout << "fg point found at: " << it.GetIndex() << ": " << it.GetCenterNeighborhoodIndex(); //it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
+            if(VERBOSE) std::cout << "fg point found at: " << it.GetIndex() << ": " << it.GetCenterNeighborhoodIndex(); //it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
             //point0ii= image->ComputeIndex(it.GetOffset(0));
             point0ii= it.GetIndex(it.GetCenterNeighborhoodIndex()); //it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
             //point0ii= it.GetCenterNeighborhoodIndex();//ConstNeighborhoodIteratorWithOnlyIndex
             point0[0]= double(point0ii[0]);
             point0[1]= double(point0ii[1]);
             point0[2]= double(point0ii[2]);
-            std::cout << ": " << point0ii << std::endl;
-            if (firstPoint){//all others should already be added in a previous iteration!?
-                //points->InsertNextPoint(point0ii);
-                //points->InsertNextPoint(point0ii[0], point0ii[1], point0ii[2]);
-                //points->InsertNextPoint(double(point0ii[0]), double(point0ii[1]), double(point0ii[2]));
-                std::cout << "First point: " << point0 << std::endl;
-                points->InsertNextPoint(point0);
-                firstPoint= false;
-                }
+            if(VERBOSE) std::cout << ": " << point0ii << std::endl;
+            vtkIdType point0Id= points->InsertNextPoint(point0);
+            
             it.SetPixel(it.GetCenterNeighborhoodIndex(), doneValue); //to keept track where we have worked already //not available in ConstNeighborhoodIteratorWithOnlyIndex
             //doneMap->SetPixel(it.GetOffset(0), doneValue);
             //for (unsigned i = it.Begin(); i != it.End(); i++)//not skipping centre pixel???
@@ -125,7 +120,7 @@ int main(int argc, char *argv[])
                 if ((it.GetPixel(i) == fg) && (image->GetPixel(it.GetIndex(i)) != doneValue)){
                     //pointii= image->ComputeIndex(it.GetOffset(i));
                     pointii= it.GetIndex(i);
-                    std::cout << "Last point: " << point << std::endl;
+                    if(VERBOSE) std::cout << "Last point: " << point << std::endl;
 
                     //points->InsertNextPoint(double(point[0]), double(point[1]), double(point[2]));
                     point[0]= double(pointii[0]);
@@ -134,10 +129,7 @@ int main(int argc, char *argv[])
                     vtkIdType pointId= points->InsertNextPoint(point);
 
                     vtkSmartPointer<vtkLine> line= vtkSmartPointer<vtkLine>::New();
-                    vtkIdType point0Id;
-                    if (point0Id= points->IsInsertedPoint(point0[0], point0[1], point0[2]) < 0)
-                        std::cerr << "Point not yet in list! This should not happen! Id: " << point0Id << ":" << point0[0] << ";"  << point0[1] << ";" << point0[2] << std::endl;
-
+                    
                     line->GetPointIds()->SetId(0,point0Id);
                     line->GetPointIds()->SetId(1,pointId); //or GetNumberOf
                     lines->InsertNextCell(line);
@@ -148,15 +140,26 @@ int main(int argc, char *argv[])
 
     vtkSmartPointer<vtkPolyData> polydata= vtkSmartPointer<vtkPolyData>::New();
     //polydata->SetPoints(reader->GetOutput()->GetPoints());
-    polydata->SetPoints(points->GetPoints());
+    polydata->SetPoints(points);
     polydata->SetLines(lines);
+
+    vtkSmartPointer<vtkCleanPolyData> cleanFilter= vtkSmartPointer<vtkCleanPolyData>::New();
+#if VTK_MAJOR_VERSION <= 5
+    cleanFilter->SetInput(polydata);
+#else
+    cleanFilter->SetInputData(polydata);
+#endif
+    cleanFilter->PointMergingOn();
+    cleanFilter->Update();
+
 
     //std::cout << "Input polydata contains " << reader->GetOutput()->GetNumberOfLines() << " lines and the loop-path " << polydata->GetNumberOfLines() << " lines."<< std::endl;
 
     vtkSmartPointer<vtkXMLPolyDataWriter> Pwriter = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
  
     Pwriter->SetFileName(argv[2]);
-    Pwriter->SetInput(polydata);
+    //Pwriter->SetInput(polydata);
+    Pwriter->SetInputConnection(cleanFilter->GetOutputPort());
     Pwriter->Update();
 
     return EXIT_SUCCESS;

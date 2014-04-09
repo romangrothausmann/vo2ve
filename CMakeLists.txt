@@ -47,5 +47,5 @@ install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
 
 SET(CurrentExe "vo-skel2poly")
 ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx)
-TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries})
+TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries} ${ITK_LIBRARIES})
 install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
