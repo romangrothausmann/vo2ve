@@ -5,7 +5,13 @@
 //03: debugging
 //04: replace vtkContourTriangulator by vtkTrianglulate of an n-gon
 //05: switch from VERTEX ID-selection to EDGE threshold-selections
-//06: moved append filter update ouside main loop for performance (not working yet!)
+//{06: append performance improvements (not working yet)}
+//07: counting all loops (and sub-loops)
+
+//todo: 
+// - compute Euler Characteristics to optain total numer of loops before head and for total progress report;-)
+// - save skippted graphes too for manual checking
+// - use openMP for main for-loop
 
 #include <vtkSmartPointer.h>
 
@@ -38,7 +44,7 @@
 #include <vtkCleanPolyData.h>
 #include <vtkStripper.h> //to convert vtkLines to vtkPolyLine
 #include <vtkPolyLine.h>
-#include <vtkTriangleFilter.h> 
+//#include <vtkTriangleFilter.h> 
 //#include <.h>
 
 #include <vtkGraphToPolyData.h>
@@ -61,6 +67,7 @@
 #include <vtkCallbackCommand.h>
 #include <vtkCommand.h>
 
+#define V 1
 #define VERBOSE 0
 #define P_VERBOSE 0
 //#define COM_INT= -1 //none biconnected components
@@ -125,8 +132,13 @@ vtkIdType getEndpointId(vtkSmartPointer<vtkPolyData> mesh){
 }
 
 
-vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
+vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vtkSmartPointer<vtkPolyData> connected_filled_loops, int MinLoopNodes, int* pnl, int* pnnl, int* pnnnl, int* pnsl){
 
+
+  int   nl=   *pnl;
+  int  nnl=  *pnnl;
+  int nnnl= *pnnnl;
+  int  nsl=  *pnsl;
 
   int COM_INT= -1; //none biconnected components
   VTK_CREATE(vtkCallbackCommand, progressCallback);
@@ -134,9 +146,12 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
 
 
   vtkSmartPointer<vtkPolyData> sub_mesh;
+  //VTK_CREATE(vtkPolyData, sub_mesh);
 
-  // VTK_CREATE(vtkAppendPolyData, append);
-  // append->AddInputData(connected_filled_loops);
+  VTK_CREATE(vtkAppendPolyData, append_fl);
+  append_fl->AddInputData(connected_filled_loops);
+
+  //VTK_CREATE(vtkAppendPolyData, append_rm);
 
   //vtkSmartPointer<vtkPolyData> mesh;
   // VTK_CREATE(vtkPolyData, pmesh);
@@ -223,54 +238,12 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       non++;
       vtkIdType u = itc00->Next();
     }
-    //std::cout << "Vertex " << nextVertex << " with value: " << nextVertex_v << " has a non of: " << non <<std::endl;  
-    // if(non < 2){
-    //   remove_v= true;
-    //   if(VERBOSE) std::cout << "Removing vertex " << nextVertex << " with value: " << nextVertex_v << " which has less than 2 non." <<std::endl;  
-    // }
-
     if ((nextVertex_v != COM_INT)&&(non > 1)){
       //sel->AddID(0, nextVertex);
       sel->AddThreshold(nextVertex_v, nextVertex_v);
       if(VERBOSE) std::cout << "Added " << nextVertex_v << " to the edge-selection thresholds!"<< std::endl; 
     }
-
-
-    // VTK_CREATE(vtkAdjacentVertexIterator, itc00);
-    // mdgraph0->GetAdjacentVertices(nextVertex, itc00);
-    
-    // remove_v= false;
-    // if(nextVertex_v == COM_INT){
-    //   remove_v= true;
-    // }
-    // int non= 0; 
-    // while (itc00->HasNext()){
-    //   non++;
-    //   vtkIdType u = itc00->Next();
-    //   int vv= array0->GetValue(u);
-    //   //std::cout << "Checking vertex " << u << " with value: " << vv << std::endl;  
-    //   if ((nextVertex_v == COM_INT) && (vv != COM_INT)){//only apply for nextVertex_v == -1
-    // 	remove_v= false;
-    //   }
-    // }
-    // //std::cout << "Vertex " << nextVertex << " with value: " << nextVertex_v << " has a non of: " << non <<std::endl;  
-    // if(non < 2){
-    //   remove_v= true;
-    //   if(VERBOSE) std::cout << "Removing vertex " << nextVertex << " with value: " << nextVertex_v << " which has less than 2 non." <<std::endl;  
-    // }
-    // if(remove_v){
-    //   //vr_array0->InsertNextValue(nextVertex);
-    //   sel->AddID(0, nextVertex);
-    //   if(VERBOSE) std::cout << "Added vertex " << nextVertex << " to the vertex-remove-list!"<< std::endl; 
-    // }
   }
-
-  ////coud also use vtkExtractSelectionGraph
-  // mdgraph0->RemoveEdges(er_array); //Removes a collection of vertices from t
-  // std::cout << "Removed edges!"<< std::endl; 
-  //mdgraph0->RemoveVertices(vr_array0); //Removes a collection of vertices from the graph along with any connected edges. AND often screws up edge relations!!!
-  //std::cout << "Removed vertices and their edges!"<< std::endl; 
-
 
 
   //sel->SetInverse(1);
@@ -280,12 +253,12 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
   extract_graph->AddInputConnection(bbc->GetOutputPort());
   extract_graph->SetSelectionConnection(sel->GetOutputPort());
   extract_graph->RemoveIsolatedVerticesOff();//If set, removes vertices with no adjacent edges in an edge selection. A vertex selection ignores this flag and always returns the full set of selected vertices. Default is on. 
-  //if(P_VERBOSE) 
-  std::cout << "Executing vtkExtractSelectedGraph..." << std::endl;
-  extract_graph->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  if(P_VERBOSE) 
+    std::cout << "Executing vtkExtractSelectedGraph..." << std::endl;
+  //extract_graph->AddObserver(vtkCommand::ProgressEvent, progressCallback);
   extract_graph->Update();
-  //if(P_VERBOSE) 
-  std::cout  << std::endl << "done." << std::endl;
+  if(P_VERBOSE) 
+    std::cout  << std::endl << "done." << std::endl;
 
   // ////write test output 
   // vtkSmartPointer<vtkGraphToPolyData> tgraphToPolyData= vtkSmartPointer<vtkGraphToPolyData>::New();
@@ -300,6 +273,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
 
 
   /////////////////Removing only vertices connected to purely the same kind done.
+
 
   VTK_CREATE(vtkRemoveIsolatedVertices, riv);
   riv->SetInputConnection(extract_graph->GetOutputPort());
@@ -353,7 +327,6 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
   }
   else{
     std::cerr  << "No vtkIntArray named \"component\" in bcc->GetOutput()!"  << std::endl;
-    n_cc= 0;
     exit(1);
     //return sub_mesh= NULL;
   }
@@ -385,19 +358,19 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
   
   if(VERBOSE) std::cout  << "n_cc " << n_cc << std::endl;
 
-  VTK_CREATE(vtkPolyData, pmesh);
+  if(V) std::cout  << "sub-mesh contains " << n_cc << " loops." << std::endl;
 
-  sub_mesh= NULL;
 
   for (vtkIdType i = 0; i <= n_cc; i++){//for each cc
 
     //if(VERBOSE) 
     //std::cout  << "doing cc: " << i << " of " << n_cc << "[" << i*100/n_cc << "%]" std::endl;
-    printf("Doing cc: %d of %d [%5.1f%%]\n", i , n_cc,  i*100.0/n_cc);
+    printf("Doing cc: %d of %d [%5.1f%%]\n", i+1 , n_cc+1,  (i+1)*100.0/(n_cc+1));
  
+    VTK_CREATE(vtkPolyData, pmesh);
     VTK_CREATE(vtkPolygon, polygon);
     VTK_CREATE(vtkCellArray, outCells);
-    VTK_CREATE(vtkTriangleFilter, tf);
+    //VTK_CREATE(vtkTriangleFilter, tf);
 
 
    
@@ -432,9 +405,11 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       }
       //std::cout << "Checking vertex " << nextVertex << " with value: " << array->GetValue(nextVertex) << " which has " << mdgraph->GetNumberOfEdgePoints(nextVertex) << " adjacent vertices" << std::endl;  
     }
-    if(n < 3){
-      //if(VERBOSE) 
-      std::cout << "Skipping cc " << i << " which has less than 3 vertices with value: " << ccv << std::endl;  
+    //if(n < 3){
+    //if(n < 6){ //6 to avoid cross in square graph
+    if(n < MinLoopNodes){ //10 to avoid small but odd structures such as in 13-621_CO_LW-seg_03_11_01.png
+      nsl++;
+      if(VERBOSE) std::cout << "Skipping cc " << i << " which has only " << n << " vertices with value: " << ccv << std::endl;  
       continue;
     }
 
@@ -444,144 +419,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       if(VERBOSE) std::cout  << "doning " << i << std::endl;
 
       // /////////////////Removing junctions
-
-      // vtkSmartPointer<vtkMutableUndirectedGraph> mdgraph=  vtkSmartPointer<vtkMutableUndirectedGraph>::New();
-      // mdgraph->DeepCopy(cc_gth->GetOutput());
-       
-
-      // vtkIntArray* array= vtkIntArray::SafeDownCast(mdgraph->GetVertexData()->GetArray("biconnected_component"));
-
-      // VTK_CREATE(vtkIdTypeArray, vr_array);
-      // VTK_CREATE(vtkIdTypeArray, er_array);
-
-
-      // vtkSmartPointer<vtkVertexListIterator> it= vtkSmartPointer<vtkVertexListIterator>::New();
-      // mdgraph->GetVertices(it);
-
-      // bool ans;
-      // int n= 0;
-      // while(ans= it->HasNext()){ 
-      // 	n++;
-      // 	vtkIdType nextVertex= it->Next();
-      // 	//std::cout << "Checking vertex " << nextVertex << " with value: " << array->GetValue(nextVertex) << " which has " << mdgraph->GetNumberOfEdgePoints(nextVertex) << " adjacent vertices" << std::endl;  
-
-      // 	vtkSmartPointer<vtkAdjacentVertexIterator> itc= vtkSmartPointer<vtkAdjacentVertexIterator>::New(); //VTK_CREATE(vtkAdjacentVertexIterator, it);
-      // 	mdgraph->GetAdjacentVertices(nextVertex, itc);
-	
-      // 	int num_of_adjacent_vertices= 0;
-      // 	while (itc->HasNext()){
-      // 	  vtkIdType u = itc->Next();
-      // 	  num_of_adjacent_vertices++;
-      // 	}
-
-      // 	// //if(nextVertex == 622)
-      // 	// std::cout << "Vertex " << nextVertex << ", num_of_adjacent_vertices " << num_of_adjacent_vertices << std::endl; 
-      // 	// if (num_of_adjacent_vertices < 2){
-	    
-      // 	//   vr_array->InsertNextValue(nextVertex);
-      // 	//   //if(VERBOSE) 
-      // 	//   std::cout << "Added vertex " << nextVertex << " (which has less than two neighbours) to the vertex-remove-list!"<< std::endl; 
-      // 	//   VTK_CREATE(vtkInEdgeIterator, iei);
-      // 	//   mdgraph->GetInEdges(nextVertex, iei);
-      // 	//   while (iei->HasNext()){
-      // 	//     vtkInEdgeType next_Edge= iei->Next();
-      // 	//     er_array->InsertNextValue(next_Edge.Id);
-      // 	//     //if(VERBOSE) 
-      // 	//     std::cout << "Added edge " << next_Edge.Id << " to the edge-remove-list!"<< std::endl; 
-      // 	//   }
-      // 	// }
-
-      // 	if (array->GetValue(nextVertex) == COM_INT){
-      // 	  if(VERBOSE) std::cout << "Pre-Checking vertex " << nextVertex << " with value: " << array->GetValue(nextVertex) << " which has " << num_of_adjacent_vertices << " adjacent vertices" << std::endl;  
-      // 	  //if (num_of_adjacent_vertices > 2){ //does not work in cases of -1 not belonging to a triangle, have to check if adacent vertex has one identical adjacent vertex of vertex with v==-1
-
-      // 	  //std::cout << "Checking vertex " << nextVertex << " with value: " << array->GetValue(nextVertex) << " which has " << num_of_adjacent_vertices << " adjacent vertices" << std::endl;  
-	  
-      // 	  if (num_of_adjacent_vertices < 2){
-	    
-      // 	    vr_array->InsertNextValue(nextVertex);
-      // 	    //if(VERBOSE) 
-      // 	    std::cout << "Added vertex (which has less than two neighbours) " << nextVertex << " to the vertex-remove-list!"<< std::endl; 
-      // 	    VTK_CREATE(vtkInEdgeIterator, iei);
-      // 	    mdgraph->GetInEdges(nextVertex, iei);
-      // 	    while (iei->HasNext()){
-      // 	      vtkInEdgeType next_Edge= iei->Next();
-      // 	      er_array->InsertNextValue(next_Edge.Id);
-      // 	      //if(VERBOSE) 
-      // 	      std::cout << "Added edge " << next_Edge.Id << " to the edge-remove-list!"<< std::endl; 
-      // 	    }
-      // 	  }
-      // 	  else if (num_of_adjacent_vertices == 2){
-      // 	    vtkSmartPointer<vtkAdjacentVertexIterator> itc0= vtkSmartPointer<vtkAdjacentVertexIterator>::New(); //VTK_CREATE(vtkAdjacentVertexIterator, it);
-      // 	    mdgraph->GetAdjacentVertices(nextVertex, itc0);
-      // 	    int av= array->GetValue(itc0->Next());
-      // 	    int bv= array->GetValue(itc0->Next());
-      // 	    if (itc0->HasNext()){
-      // 	      std::cerr << "Vertex " << nextVertex << " has more than 2 neighbours here. Aborting!"<< std::endl;
-      // 	      exit(1);
-      // 	    }
-      // 	    //std::cout << "Vertex " << nextVertex << " has 2 neighbours, av " << av << ", bv " << bv << std::endl;
-      // 	    if (av != bv){
-      // 	      vr_array->InsertNextValue(nextVertex);
-      // 	      //if(VERBOSE) 
-      // 	      std::cout << "Added vertex " << nextVertex << " to the vertex-remove-list!"<< std::endl; 
-      // 	      VTK_CREATE(vtkInEdgeIterator, iei);
-      // 	      mdgraph->GetInEdges(nextVertex, iei);
-      // 	      while (iei->HasNext()){
-      // 		vtkInEdgeType next_Edge= iei->Next();
-      // 		er_array->InsertNextValue(next_Edge.Id);
-      // 		if(VERBOSE) std::cout << "Added edge " << next_Edge.Id << " to the edge-remove-list!"<< std::endl; 
-      // 	      }
-      // 	    }
-      // 	  }//else if (num_of_adjacent_vertices == 2){
-      // 	  else{
-
-      // 	    ////checking first "corner"
-      // 	    vtkSmartPointer<vtkAdjacentVertexIterator> itc0= vtkSmartPointer<vtkAdjacentVertexIterator>::New(); //VTK_CREATE(vtkAdjacentVertexIterator, it);
-      // 	    mdgraph->GetAdjacentVertices(nextVertex, itc0);
-      // 	    while (itc0->HasNext()){
-      // 	      vtkSmartPointer<vtkAdjacentVertexIterator> itc1= vtkSmartPointer<vtkAdjacentVertexIterator>::New(); //VTK_CREATE(vtkAdjacentVertexIterator, it);
-      // 	      mdgraph->GetAdjacentVertices(itc0->Next(), itc1);
-      // 	      while (itc1->HasNext()){
-      // 		vtkSmartPointer<vtkAdjacentVertexIterator> itc2= vtkSmartPointer<vtkAdjacentVertexIterator>::New(); //VTK_CREATE(vtkAdjacentVertexIterator, it);
-      // 		mdgraph->GetAdjacentVertices(itc1->Next(), itc2);
-      // 		while (itc2->HasNext()){
-      // 		  vtkIdType nextCVertex= itc2->Next();
-      // 		  if (nextCVertex == nextVertex){
-      // 		    int vv= array->GetValue(nextCVertex);
-      // 		    if(VERBOSE) std::cout << "Checking vertex " << nextCVertex << " with value: " << vv << std::endl;  
-      // 		    if (vv == COM_INT){
-		    
-      // 		      int value_found= 0;
-      // 		      for(vtkIdType i= 0; i < vr_array->GetNumberOfTuples(); i++)
-      // 			if (vr_array->GetValue(i) == nextCVertex)
-      // 			  value_found= 1;
-      // 		      if(!value_found){
-      // 			vr_array->InsertNextValue(nextCVertex);
-      // 			if(VERBOSE) std::cout << "Added vertex " << nextCVertex << " with value: " << vv << " to the vertex-remove-list!"<< std::endl; 
-      // 			VTK_CREATE(vtkInEdgeIterator, iei);
-      // 			mdgraph->GetInEdges(nextCVertex, iei);
-      // 			while (iei->HasNext()){
-      // 			  vtkInEdgeType next_Edge= iei->Next();
-      // 			  er_array->InsertNextValue(next_Edge.Id);
-      // 			  if(VERBOSE) std::cout << "Added edge " << next_Edge.Id << " to the edge-remove-list!"<< std::endl; 
-      // 			}
-      // 		      }
-      // 		    }
-      // 		  }
-      // 		}
-      // 	      }
-      // 	    }
-      // 	  }//if (num_of_adjacent_vertices < 2){}else{
-      // 	}
-      // }
-
-      // ////coud also use vtkExtractSelectionGraph
-      // mdgraph->RemoveEdges(er_array); //Removes a collection of vertices from t
-      // if(VERBOSE) std::cout << "Removed edges!"<< std::endl; 
-      // // mdgraph->RemoveVertices(vr_array); //Removes a collection of vertices from the graph along with any connected edges. 
-      // // std::cout << "Removed vertices and their edges!"<< std::endl; 
-
+      // not needed any more, removed by ////Removing only vertices connected to purely the same kind, i.e. bbc==-1
       // /////////////////Removing junctions done.
 
       // VTK_CREATE(vtkRemoveIsolatedVertices, riv2);
@@ -595,7 +433,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       //graphToPolyData->SetInputConnection(riv2->GetOutputPort());
       graphToPolyData->SetInputConnection(cc_gth->GetOutputPort());
 
-      if(P_VERBOSE) std::cout << "Executing vtkGraphToPolyData..." << std::endl;
+      if(P_VERBOSE) std::cout << "Executing vtkGraphToPolyData for nested loop..." << std::endl;
       graphToPolyData->AddObserver(vtkCommand::ProgressEvent, progressCallback);
       graphToPolyData->Update();
       if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
@@ -603,15 +441,17 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       vtkSmartPointer<vtkPolyData> rmesh= graphToPolyData->GetOutput();
 
       // ////write test output 
-      // //vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+      // vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
       // twriter->SetFileName("test_rj.vtp");
       // twriter->SetInputData(rmesh);
       // twriter->Write();
       // std::cout   << "Wrote test_rj.vtp" << std::endl;
       // ////write test output done.
 
+
       /////////////////find shortes-loop-path
       ////is there a need to check if sVertex is not a junction???
+
       vtkIdType sVertex= 0; //try Id==0
       vtkIdType eVertex;
 
@@ -620,7 +460,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
 
       //get all cells that vertex 'id' is a part of
       VTK_CREATE(vtkIdList, cellIdList);
-      if(VERBOSE) std::cout << "Building Links... " << std::endl;
+      if(VERBOSE) std::cout << "Building Links... " << std::flush << std::endl;
       rmesh->BuildLinks();
       
       vtkIdType eid= getEndpointId(rmesh);
@@ -649,22 +489,11 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
 
       if(VERBOSE) std::cout << "sVertex " << sVertex << std::endl;
 
-
-      //rmesh->GetPointCells(sVertex, cellIdList); //Make sure that routine BuildLinks() has been called. 
-
       if (cellIdList->GetNumberOfIds() != 2){
 	std::cerr << "Point not connected to just one or two lines (cells)! # of connected cells: "<< cellIdList->GetNumberOfIds() << " loop splitting embigous!"<< std::endl;
 	exit(1);
       }
-      /*
-	cout << "Vertex 0 is used in cells ";
-	for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++)
-	{
-	cout << cellIdList->GetId(i) << ", ";
-	}
-	cout << endl;
-      */
- 
+
       for(vtkIdType i = 0; i < cellIdList->GetNumberOfIds(); i++){
 	//cout << "id " << i << " : " << cellIdList->GetId(i) << endl;
  
@@ -684,25 +513,6 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
 	}
       }
 
-      // eVertex= connectedVertices->GetId(0);
-
-      // if (connectedVertices->GetNumberOfIds() == 2){
-
-      // 	eVertex= connectedVertices->GetId(0);
-      // 	std::cout << "Endpoint unembigous! Using: "<< eVertex << std::endl;
-    
-      // 	////split open line connection between sVertex and eVertex
-      // 	rmesh->DeleteCell(cellIdList->GetId(0)); //has to correspond to eVertex= connectedVertices->GetId(0);
-      // 	rmesh->RemoveDeletedCells();
-      // 	//rmesh->Update();
-      // 	std::cout << "Deleted cell between vertex " << sVertex << " and " << eVertex << " : "<< cellIdList->GetId(0) << std::endl;
-      // }
-      // // }
-      // // else{
-      // // 	std::cerr << "More than just one connected point (" << connectedVertices->GetNumberOfIds() << "), endpoint embigous!"<< std::endl;
-      // // 	exit(1);
-      // // }
-
       eVertex= connectedVertices->GetId(0);
       if(VERBOSE) std::cout << "Endpoint unembigous! Using: "<< eVertex << std::endl;
     
@@ -721,139 +531,120 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       // ////write test output done.
 
 
-	VTK_CREATE(vtkDijkstraGraphGeodesicPath, dggp);
+      VTK_CREATE(vtkDijkstraGraphGeodesicPath, dggp);
 
-	dggp->SetInputData(rmesh);
-	//dggp->SetInputConnection(extractEdges->GetOutputPort());
-	dggp->SetStartVertex(sVertex);
-	dggp->SetEndVertex(eVertex);
-	dggp->StopWhenEndReachedOn();
-	// UseScalarWeightsOn ()
-	// RepelPathFromVerticesOn ()
-	// SetRepelVertices (vtkPoints *)
+      dggp->SetInputData(rmesh);
+      //dggp->SetInputConnection(extractEdges->GetOutputPort());
+      dggp->SetStartVertex(sVertex);
+      dggp->SetEndVertex(eVertex);
+      dggp->StopWhenEndReachedOn();
+      // UseScalarWeightsOn ()
+      // RepelPathFromVerticesOn ()
+      // SetRepelVertices (vtkPoints *)
   
-	if(P_VERBOSE) std::cout << "Executing vtkDijkstraGraphGeodesicPath..." << std::endl;
-	dggp->AddObserver(vtkCommand::ProgressEvent, progressCallback);
-	dggp->Update();
-	if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+      if(P_VERBOSE) std::cout << "Executing vtkDijkstraGraphGeodesicPath..." << std::endl;
+      dggp->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+      dggp->Update();
+      if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
 
 
-	/////////////////find shortes-loop-path done.
+      /////////////////find shortes-loop-path done.
 	
-	/////////////////fill shortes-loop-path 
+      /////////////////create n-gon
 
-	/////////////////create n-gon
+      // VTK_CREATE(vtkPolyData, pmesh);
+      // VTK_CREATE(vtkPolygon, polygon);
+      // VTK_CREATE(vtkCellArray, outCells);
 
-	// VTK_CREATE(vtkPolyData, pmesh);
-	// VTK_CREATE(vtkPolygon, polygon);
-	// VTK_CREATE(vtkCellArray, outCells);
+      VTK_CREATE(vtkCleanPolyData, cpd);
+      cpd->SetInputConnection(dggp->GetOutputPort());
+      cpd->PointMergingOn();
+      VTK_CREATE(vtkStripper, stripper);
+      //stripper->SetInputConnection(dggp->GetOutputPort());
+      stripper->SetInputConnection(cpd->GetOutputPort());
+
+      if(P_VERBOSE) std::cout << "Executing vtkStripper..." << std::endl;
+      stripper->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+      stripper->Update();
+      if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
 
 
-	//pmesh= dggp->GetOutput();
-	//pmesh->DeepCopy(dggp->GetOutput());
+      //pmesh= dggp->GetOutput();
+      //pmesh->DeepCopy(graphToPolyData->GetOutput());
+      pmesh->DeepCopy(stripper->GetOutput());
 
-	// // VTK_CREATE(vtkPolygon, polygon);
-	// //polygon->GetPoints()->DeepCopy(mesh); //only good if n-gon is use without assignment to vtkPolyData: http://www.vtk.org/Wiki/VTK/Examples/Cxx/GeometricObjects/PolygonIntersection
-	// // polygon->SetPoints(mesh->GetPoints());
-	// // polygon->SetPointIds(mesh->GetPointIds());
-	// vtkIdType mnop= pmesh->GetPoints()->GetNumberOfPoints();
-	// polygon->GetPointIds()->SetNumberOfIds(mnop);
-	// if(VERBOSE) std::cout << "Polygon will contain " << mnop << " points2."<< std::endl; 
+      vtkIdType mnop= pmesh->GetPoints()->GetNumberOfPoints();
 
-	// for (vtkIdType k= 0; k < mnop; k++){
-	// 	//polygon->GetPointIds()->InsertNextId(k);
-	// 	// outCell->GetPoints()->SetPoint(k, outPoints->GetPoint(k));//necessary???
-	// 	polygon->GetPointIds()->SetId(k, k); //works but may yield a "folded" polygon -> need convex hull
-	// }
+      vtkSmartPointer<vtkCell> cell= pmesh->GetCell(0);
+      if(VERBOSE) std::cout << "Cell 0 is of type: " << vtkCellTypes::GetClassNameFromTypeId(cell->GetCellType()) << std::endl;  
+      if (cell->GetCellType() != VTK_POLY_LINE){ //from VTK/Filtering/vtkCellType.h, VTK_POLY_LINE: set of 1D lines
+	std::cerr << "Cell 0 is not a VTK_POLY_LINE. Aborting!"<< std::endl; 
+	////write test output 
+	vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+	twriter->SetFileName("test.vtp");
+	twriter->SetInputData(pmesh);
+	twriter->Write();
+	std::cout   << "Wrote test.vtp" << std::endl;
+	////write test output done.
+	exit(1);
+      }
+
+      vtkSmartPointer<vtkPolyLine> pl= vtkPolyLine::SafeDownCast(cell);
+      polygon->GetPointIds()->SetNumberOfIds(mnop);
+      if(VERBOSE) std::cout << "Polygon will contain " << mnop << " points2."<< std::endl; 
+
+      for (vtkIdType k= 0; k < mnop; k++){
+	//polygon->GetPointIds()->InsertNextId(k);
+	// outCell->GetPoints()->SetPoint(k, outPoints->GetPoint(k));//necessary???
+	polygon->GetPointIds()->SetId(k, pl->GetPointIds()->GetId(k)); //works but may yield a "folded" polygon -> need convex hull
+	//polygon->SetPointIds(pl->GetPointIds()); //works but may yield a "folded" polygon -> need convex hull
+      }
  
-	// // if(VERBOSE) std::cout << "Triangulating polygon...";
-	// // polygon->Triangulate(0,polygon->GetPointIds(),pmesh->GetPoints());
-	// // if(VERBOSE) std::cout << " done." << std::endl;
+      //  VTK_CREATE(vtkCellArray, outCells);
+      outCells->InsertNextCell(polygon);
+      pmesh->SetPolys(outCells);//SetPolys
 
- 
-	// //  VTK_CREATE(vtkCellArray, outCells);
-	// outCells->InsertNextCell(polygon);
-	// pmesh->SetPolys(outCells);//SetPolys
+      /////////////////create n-gon done.
 
-	// /////////////////create n-gon done.
-	// /////////////////create n-gon
+      // //ct->SetInputConnection(dggp->GetOutputPort());
+      // tf->SetInputData(pmesh);
+      /////////////////fill shortes-loop-path done.
 
-	// VTK_CREATE(vtkPolyData, pmesh);
-	// VTK_CREATE(vtkPolygon, polygon);
-	// VTK_CREATE(vtkCellArray, outCells);
+      // ////write test output 
+      // vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+      // twriter->SetFileName("test_mesh.vtp");
+      // twriter->SetInputData(mesh);
+      // twriter->Write();
+      // std::cout   << "Wrote test_mesh.vtp" << std::endl;
+      // ////write test output done.
 
-	VTK_CREATE(vtkCleanPolyData, cpd);
-	cpd->SetInputConnection(dggp->GetOutputPort());
-	cpd->PointMergingOn();
-	VTK_CREATE(vtkStripper, stripper);
-	//stripper->SetInputConnection(dggp->GetOutputPort());
-	stripper->SetInputConnection(cpd->GetOutputPort());
+      nnl++;
+      //if(V) std::cout  << "Number of filled nested loops so far " << nnl << std::endl;
+      if(VERBOSE) std::cout  << "Filled a nested loop." << std::endl;
 
-	if(P_VERBOSE) std::cout << "Executing vtkStripper..." << std::endl;
-	stripper->AddObserver(vtkCommand::ProgressEvent, progressCallback);
-	stripper->Update();
-	if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+      if(rmesh){
+	//if(rmesh->GetPoints()->GetNumberOfPoints() > 0){
+	VTK_CREATE(vtkAppendPolyData, append2);
+      	append2->AddInputData(rmesh);
+      	//if(sub_mesh->GetPoints())
+      	//if(sub_mesh->GetPoints()->GetNumberOfPoints() > 0)
+	append2->AddInputData(sub_mesh);
 
+      	if(P_VERBOSE) 
+	  std::cout << "Executing vtkAppendPolydata (append2)..." << std::endl;
+	//append2->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+	append2->Update();
+      	if(P_VERBOSE) 
+	  std::cout  << std::endl << "done." << std::endl;
 
-	//pmesh= dggp->GetOutput();
-	//pmesh->DeepCopy(graphToPolyData->GetOutput());
-	pmesh->DeepCopy(stripper->GetOutput());
-
-	// VTK_CREATE(vtkPolygon, polygon);
-	//polygon->GetPoints()->DeepCopy(mesh); //only good if n-gon is use without assignment to vtkPolyData: http://www.vtk.org/Wiki/VTK/Examples/Cxx/GeometricObjects/PolygonIntersection
-	// polygon->SetPoints(mesh->GetPoints());
-	// polygon->SetPointIds(mesh->GetPointIds());
-	vtkIdType mnop= pmesh->GetPoints()->GetNumberOfPoints();
-
-	vtkSmartPointer<vtkCell> cell= pmesh->GetCell(0);
-	if(VERBOSE) std::cout << "Cell 0 is of type: " << vtkCellTypes::GetClassNameFromTypeId(cell->GetCellType()) << std::endl;  
-	if (cell->GetCellType() != VTK_POLY_LINE){ //from VTK/Filtering/vtkCellType.h, VTK_POLY_LINE: set of 1D lines
-	  std::cerr << "Cell 0 is not a VTK_POLY_LINE. Aborting!"<< std::endl; 
-	  ////write test output 
-	  vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-	  twriter->SetFileName("test.vtp");
-	  twriter->SetInputData(pmesh);
-	  twriter->Write();
-	  std::cout   << "Wrote test.vtp" << std::endl;
-	  ////write test output done.
-	  exit(1);
-	}
-
-	vtkSmartPointer<vtkPolyLine> pl= vtkPolyLine::SafeDownCast(cell);
-	polygon->GetPointIds()->SetNumberOfIds(mnop);
-	if(VERBOSE) std::cout << "Polygon will contain " << mnop << " points2."<< std::endl; 
-
-	for (vtkIdType k= 0; k < mnop; k++){
-	  //polygon->GetPointIds()->InsertNextId(k);
-	  // outCell->GetPoints()->SetPoint(k, outPoints->GetPoint(k));//necessary???
-	  polygon->GetPointIds()->SetId(k, pl->GetPointIds()->GetId(k)); //works but may yield a "folded" polygon -> need convex hull
-	  //polygon->SetPointIds(pl->GetPointIds()); //works but may yield a "folded" polygon -> need convex hull
-	}
- 
-	// if(VERBOSE) std::cout << "Triangulating polygon...";
-	// polygon->Triangulate(0,polygon->GetPointIds(),pmesh->GetPoints());
-	// if(VERBOSE) std::cout << " done." << std::endl;
-
-	//  VTK_CREATE(vtkCellArray, outCells);
-	outCells->InsertNextCell(polygon);
-	pmesh->SetPolys(outCells);//SetPolys
-
-	/////////////////create n-gon done.
-
-	// //ct->SetInputConnection(dggp->GetOutputPort());
-	tf->SetInputData(pmesh);
-	/////////////////fill shortes-loop-path done.
-
-	// ////write test output 
-	// vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-	// twriter->SetFileName("test_mesh.vtp");
-	// twriter->SetInputData(mesh);
-	// twriter->Write();
-	// std::cout   << "Wrote test_mesh.vtp" << std::endl;
-	// ////write test output done.
-
-	std::cout  << "Filled a nested loop." << std::endl;
-	sub_mesh= rmesh;
+	//sub_mesh->DeepCopy(append2->GetOutput());
+	sub_mesh= append2->GetOutput();
+      }
+      // else{
+      // 	//sub_mesh= NULL;
+      // 	sub_mesh= rmesh;
+      // }
+      //sub_mesh= rmesh;
 
     }/////////////////Fill one loop of a group of nested loops done.
 
@@ -863,7 +654,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       VTK_CREATE(vtkGraphToPolyData, graphToPolyData);
       graphToPolyData->SetInputConnection(cc_gth->GetOutputPort());
       
-      if(P_VERBOSE) std::cout << "Executing vtkGraphToPolyData..." << std::endl;
+      if(P_VERBOSE) std::cout << "Executing vtkGraphToPolyData for not nested loop..." << std::endl;
       graphToPolyData->AddObserver(vtkCommand::ProgressEvent, progressCallback);
       graphToPolyData->Update();
       if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
@@ -940,13 +731,15 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
       /////////////////create n-gon done.
 
       // ct->SetInputConnection(graphToPolyData->GetOutputPort());
-      tf->SetInputData(pmesh);
+      // tf->SetInputData(pmesh);
       /////////////////fill loop-path done.
 
-      std::cout  << "Filled a not nested loop." << std::endl;
-      sub_mesh= NULL;
+      nnnl++;
+      //if (V) std::cout  << "Number of filled not nested loops so far " << nnnl << std::endl;
+      if (VERBOSE) std::cout  << "Filled a not nested loop." << std::endl;
+      //sub_mesh= NULL;
 
-    }/////////////////Fill not nested loop done.
+   }/////////////////Fill not nested loop done.
     
 
     // if(P_VERBOSE) std::cout << "Executing vtkContourTriangulator..." << std::endl;
@@ -963,114 +756,151 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh){
     // if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
 
     // append->AddInputConnection(tf->GetOutputPort());
-    // append->AddInputData(pmesh);
+    append_fl->AddInputData(pmesh);
 
-    // if(P_VERBOSE) std::cout << "Executing vtkAppendPolydata..." << std::endl;
-    // append->AddObserver(vtkCommand::ProgressEvent, progressCallback);
-    // append->Update();
-    // if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+    if(P_VERBOSE) std::cout << "Executing vtkAppendPolydata..." << std::endl;
+    //append_fl->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+    append_fl->Update();
+    if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
 
-    // connected_filled_loops->DeepCopy(append->GetOutput());
+    connected_filled_loops->DeepCopy(append_fl->GetOutput());
 
-    //connected_filled_loops= pmesh;
+    // ////write test output 
+    // vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+    // twriter->SetFileName("test.vtp");
+    // twriter->SetInputData(connected_filled_loops);
+    // twriter->Write();
+    // std::cout   << "Wrote test.vtp" << std::endl;
+    // //exit(1);
+    // ////write test output done.
 
 
+    nl++;
+    //if(V) std::cout  << "Number of filled loops so far " << nl << std::endl;
+    if(nl != (nnl + nnnl)){
+      //std::cerr  << "nl != nnl + nnnl: " << nl << " != " << nnl << " + " << nnnl << std::endl;
+      fprintf(stderr, "nl != nnl + nnnl: %d != %d + %d. Aborting!\n", nl, nnl, nnnl);
+      exit(1);
+    }
     if(VERBOSE) std::cout << "Filled a loop of cc " << i << std::endl;
-
   }//for each cc
 
-  //in_mesh= sub_mesh;
-  if(sub_mesh)
-    in_mesh->DeepCopy(sub_mesh);
-  else{
-    std::cout << "sub_mesh empty, done." << std::endl;
-    in_mesh= NULL;
-  }
-  return pmesh;
+  // //if(P_VERBOSE) 
+  // std::cout << "Executing vtkAppendPolydata..." << std::endl;
+  // append->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  // append->Update();
+  // //if(P_VERBOSE) 
+  // std::cout  << std::endl << "done." << std::endl;
+
+  // connected_filled_loops->DeepCopy(append->GetOutput());
+
+  // //if(P_VERBOSE) 
+  // std::cout << "Executing vtkAppendPolydata (append2)..." << std::endl;
+  // append2->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  // append2->Update();
+  // //if(P_VERBOSE) 
+  // std::cout  << std::endl << "done." << std::endl;
+  // sub_mesh->DeepCopy(append2->GetOutput());
+
+  ////this is NEEDED!!!
+  *pnl= nl;
+  *pnnl= nnl;
+  *pnnnl= nnnl;
+  *pnsl= nsl;
+
+  return sub_mesh;
 
 }
 
  
-int main(int argc, char* argv[]){
+  int main(int argc, char* argv[]){
 
-  if( argc <= 2 ) {
-    std::cerr << "Usage: " << argv[0];
-    std::cerr << " inputGraph";
-    std::cerr << " outputGraph";
-    std::cerr << std::endl;  
-    return EXIT_FAILURE;
-  }
+    if( argc != 4 ) {
+      std::cerr << "Usage: " << argv[0];
+      std::cerr << " inputGraph";
+      std::cerr << " outputGraph";
+      std::cerr << " MinLoopNodes";
+      std::cerr << std::endl;  
+      return EXIT_FAILURE;
+    }
 
-  if(!(strcasestr(argv[1],".vtp"))) {
-    std::cout << "The input should end with .vtp" << std::endl; 
-    return -1;
-  }
+    if(!(strcasestr(argv[1],".vtp"))) {
+      std::cout << "The input should end with .vtp" << std::endl; 
+      return -1;
+    }
 
-  if(!(strcasestr(argv[2],".vtp"))) {
-    std::cout << "The output should end with .vtp" << std::endl; 
-    return -1;
-  }
+    if(!(strcasestr(argv[2],".vtp"))) {
+      std::cout << "The output should end with .vtp" << std::endl; 
+      return -1;
+    }
 
-  VTK_CREATE(vtkCallbackCommand, progressCallback);
-  progressCallback->SetCallback(ProgressFunction);
+    VTK_CREATE(vtkCallbackCommand, progressCallback);
+    progressCallback->SetCallback(ProgressFunction);
 
 
-  //vtkXMLPolyDataReader *reader = vtkXMLPolyDataReader::New(); //*.vtp
-  vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();  
+    //vtkXMLPolyDataReader *reader = vtkXMLPolyDataReader::New(); //*.vtp
+    vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();  
 
-  reader->SetFileName(argv[1]);
-  reader->Update();
+    reader->SetFileName(argv[1]);
+    reader->Update();
 
-  ////cleaning should be done before this program is called to make sure the rootID does not change!!!
+    ////cleaning should be done before this program is called to make sure the rootID does not change!!!
 
-  // VTK_CREATE(vtkCleanPolyData, cleanFilter);
-  // cleanFilter->SetInputConnection(reader->GetOutputPort());
-  // cleanFilter->Update();
+    // VTK_CREATE(vtkCleanPolyData, cleanFilter);
+    // cleanFilter->SetInputConnection(reader->GetOutputPort());
+    // cleanFilter->Update();
 
-  // vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
-  // triangleFilter->SetInputConnection(cleanFilter->GetOutputPort());
-  // triangleFilter->Update();
+    // vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
+    // triangleFilter->SetInputConnection(cleanFilter->GetOutputPort());
+    // triangleFilter->Update();
     
-  // vtkSmartPointer<vtkExtractEdges> extractEdges = vtkSmartPointer<vtkExtractEdges>::New();
-  // extractEdges->SetInputConnection(triangleFilter->GetOutputPort());
-  // extractEdges->Update();
+    // vtkSmartPointer<vtkExtractEdges> extractEdges = vtkSmartPointer<vtkExtractEdges>::New();
+    // extractEdges->SetInputConnection(triangleFilter->GetOutputPort());
+    // extractEdges->Update();
    
-  // std::cout << "Prepared mesh!" << std::endl;
+    // std::cout << "Prepared mesh!" << std::endl;
 
-  VTK_CREATE(vtkPolyData, connected_filled_loops);
+    VTK_CREATE(vtkPolyData, connected_filled_loops);
 
-  vtkSmartPointer<vtkPolyData> sub_loop_mesh;
-  sub_loop_mesh= reader->GetOutput();
+    vtkSmartPointer<vtkPolyData> sub_loop_mesh;
+    sub_loop_mesh= reader->GetOutput();
 
-  VTK_CREATE(vtkAppendPolyData, append);
+    int   nl= 0;
+    int  nnl= 0;
+    int nnnl= 0;
+    int  nsl= 0;
 
-  int nol= 0;
-  //while(sub_loop_mesh){
-    //connected_filled_loops= fill_loops(sub_loop_mesh);
-    connected_filled_loops->DeepCopy(fill_loops(sub_loop_mesh));
-    append->AddInputData(connected_filled_loops);
+    int nol= 0;
 
-    nol++;
-    std::cout << "fill_loops executed " << nol << " times." << std::endl;
-    //}//while(sub_loop_mesh)
+    int MinLoopNodes= atoi(argv[3]);
 
-  //if(P_VERBOSE) 
-  std::cout << "Executing vtkAppendPolydata..." << std::endl;
-  append->AddObserver(vtkCommand::ProgressEvent, progressCallback);
-  append->Update();
-  //if(P_VERBOSE) 
-  std::cout  << std::endl << "done." << std::endl;
+    while(sub_loop_mesh){
+      sub_loop_mesh= fill_loops(sub_loop_mesh, connected_filled_loops, MinLoopNodes, &nl, &nnl, &nnnl, &nsl);
+      nol++;
+      if(V) std::cout << "fill_loops executed " << nol << " times." << std::endl;
+      if(V) std::cout  << "Number of filled loops so far " << nl << std::endl;
+      if(V) std::cout  << "Number of filled nested loops so far " << nnl << std::endl;
+      if(V) std::cout  << "Number of filled not nested loops so far " << nnnl << std::endl;
+    }//while(sub_loop_mesh)
+
+    std::cout << std::endl;
+    std::cout << std::endl;
+
+    printf("Found %d loops (%d nested loops, %d not nested loops).\n", nl, nnl, nnnl);
+    printf("The most complex bi-connected component contained at least %d sub-loops.\n", nol);
+    printf("Additional %d loops contained less than %d nodes and were skipped.\n\n", nsl, MinLoopNodes);
+
+    vtkSmartPointer<vtkXMLPolyDataWriter> writer= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+    writer->SetFileName(argv[2]);
+    //writer->SetInputConnection(graphToPolyData->GetOutputPort());
+    //writer->SetInputConnection(dggp->GetOutputPort());
+    writer->SetInputData(connected_filled_loops);
+    //writer->SetCompression(true);
+    writer->Write();
+    std::cout << "Wrote " << argv[2] << std::endl;
+
+    std::cout << "All done!" << std::endl;
 
 
-  vtkSmartPointer<vtkXMLPolyDataWriter> writer= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-  writer->SetFileName(argv[2]);
-  writer->SetInputConnection(append->GetOutputPort());
-  //writer->SetInputData(connected_filled_loops);
-  writer->Write();
-  std::cout << "Wrote " << argv[2] << std::endl;
-
-  std::cout << "All done!" << std::endl;
-
-
-  return EXIT_SUCCESS;
-}
+    return EXIT_SUCCESS;
+  }
