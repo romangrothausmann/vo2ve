@@ -7,6 +7,7 @@
 //05: switch from VERTEX ID-selection to EDGE threshold-selections
 //{06: append performance improvements (not working yet)}
 //07: counting all loops (and sub-loops)
+//08: calc total number of loops before loop filling
 
 //todo: 
 // - compute Euler Characteristics to optain total numer of loops before head and for total progress report;-)
@@ -16,13 +17,17 @@
 #include <vtkSmartPointer.h>
 
 
-#include <vtkXMLPolyDataReader.h>//for vtp-files (cannot contain 3D cells?)
+#include <vtkXMLPolyDataReader.h>
 
 //#include <vtkCleanPolyData.h>
 //#include <vtkTriangleFilter.h>
 //#include <vtkExtractEdges.h>
 
 #include <vtkPolyDataToGraph.h>
+
+#include <vtkBoostBreadthFirstSearch.h>
+#include <vtkDirectedGraph.h>
+
 #include <vtkBoostBiconnectedComponents.h>
 
 #include <vtkThresholdGraph.h>
@@ -84,6 +89,104 @@ void ProgressFunction( vtkObject* caller, long unsigned int eventId, void* clien
     }
 
 
+int CalcNumberOfLoops(vtkSmartPointer<vtkPolyData> in_mesh){
+
+  const char* bbfs_oaname= "BFS";
+
+  VTK_CREATE(vtkCallbackCommand, progressCallback);
+  progressCallback->SetCallback(ProgressFunction);
+
+  ///////////////// Convert vtkPolyData to vtkGraph
+
+  VTK_CREATE(vtkPolyDataToGraph, polyDataToGraphFilter);
+  polyDataToGraphFilter->SetInputData(in_mesh);
+
+  if(P_VERBOSE) std::cout << "Executing vtkPolyDataToGraph..." << std::endl;
+  polyDataToGraphFilter->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  polyDataToGraphFilter->Update();
+  if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+
+  ///////////////// Convert vtkPolyData to vtkGraph done.
+
+  ///////////////// convert undireced graph to a directed with BFS
+
+  VTK_CREATE(vtkBoostBreadthFirstSearch, bbfs);
+  bbfs->AddInputConnection(polyDataToGraphFilter->GetOutputPort());
+  bbfs->SetOriginVertex(0);
+  bbfs->SetOutputArrayName(bbfs_oaname);
+  
+  if(P_VERBOSE) std::cout << "Executing vtkBoostBreadthFirstSearch..." << std::endl;
+  bbfs->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  bbfs->Update();
+  if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+
+  ////write test output 
+  vtkSmartPointer<vtkGraphToPolyData> tgraphToPolyData= vtkSmartPointer<vtkGraphToPolyData>::New();
+  tgraphToPolyData->SetInputData(bbfs->GetOutput());
+  tgraphToPolyData->Update();
+  vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+  twriter->SetFileName("test_cnol.vtp");
+  twriter->SetInputConnection(tgraphToPolyData->GetOutputPort());
+  twriter->Write();
+  std::cout   << "Wrote test_cnol.vtp" << std::endl;
+  ////write test output done.
+
+
+  ///////////////// convert undireced graph to a directed with BFS done.
+
+  vtkSmartPointer<vtkGraph> graph=  bbfs->GetOutput();
+
+  ///// test if bbfs yields a vtkDirectedGraph 
+  ///// http://vtk.org/gitweb?p=VTK.git;a=blob;f=Common/DataModel/Testing/Cxx/TestGraph.cxx#l133
+  VTK_CREATE(vtkDirectedGraph, dg);
+
+  if (!dg->CheckedShallowCopy(graph)){
+    std::cerr << "vtkBoostBreadthFirstSearch does not yield a vtkDirectedGraph!" << std::endl;
+  }
+  /////test if bbfs yields a vtkDirectedGraph done.
+
+  ///////////////// find and count the number of nodes that have back-edges
+  //// not using edges but BFS node numbers (not sure if bbfs yiels a vtkDirectedGraph)
+
+  int nol= 0;
+
+  VTK_CREATE(vtkVertexListIterator, it);
+  graph->GetVertices(it);
+
+  vtkSmartPointer<vtkIntArray> array0= vtkIntArray::SafeDownCast(graph->GetVertexData()->GetArray(bbfs_oaname));
+
+  bool ans;
+  while(ans= it->HasNext()){ 
+    vtkIdType nextVertex= it->Next();
+    int nextVertex_v= array0->GetValue(nextVertex);
+
+    VTK_CREATE(vtkAdjacentVertexIterator, itc); 
+    graph->GetAdjacentVertices(nextVertex, itc);
+	
+    int num_of_backadjacent_vertices= 0;
+    while (itc->HasNext()){
+      vtkIdType u = itc->Next();
+      int u_v= array0->GetValue(u);
+      if (u_v < nextVertex_v){
+	num_of_backadjacent_vertices++;
+      }
+    }
+
+    if (num_of_backadjacent_vertices > 1){ //found a loop convergence vertex, disregard normal and end vertices
+      //nol++;   
+      nol+= num_of_backadjacent_vertices - 1; //account not only for simple loops but also nested loops, ONLY counting the number of smallest loop (paths)!
+    }
+    
+  }
+  
+
+  ///////////////// find and count the number of nodes that have back-edges done.
+
+  return nol;
+
+}
+
+
 bool isNestedLoop(vtkSmartPointer<vtkGraph> graph){
 
   if (graph->GetNumberOfVertices() <= 2){
@@ -132,7 +235,7 @@ vtkIdType getEndpointId(vtkSmartPointer<vtkPolyData> mesh){
 }
 
 
-vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vtkSmartPointer<vtkPolyData> connected_filled_loops, int MinLoopNodes, int* pnl, int* pnnl, int* pnnnl, int* pnsl){
+vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vtkSmartPointer<vtkPolyData> connected_filled_loops, int MinLoopNodes, int* pnl, int* pnnl, int* pnnnl, int* pnsl, int pcnl){
 
 
   int   nl=   *pnl;
@@ -356,16 +459,14 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vt
     }
   }
   
-  if(VERBOSE) std::cout  << "n_cc " << n_cc << std::endl;
-
-  if(V) std::cout  << "sub-mesh contains " << n_cc << " loops." << std::endl;
+  if(VERBOSE) std::cout  << "sub-mesh contains " << n_cc << " loops." << std::endl;
 
 
   for (vtkIdType i = 0; i <= n_cc; i++){//for each cc
 
     //if(VERBOSE) 
     //std::cout  << "doing cc: " << i << " of " << n_cc << "[" << i*100/n_cc << "%]" std::endl;
-    printf("Doing cc: %d of %d [%5.1f%%]\n", i+1 , n_cc+1,  (i+1)*100.0/(n_cc+1));
+    if(VERBOSE) printf("Doing cc: %d of %d [%5.1f%%]\n", i+1 , n_cc+1,  (i+1)*100.0/(n_cc+1));
  
     VTK_CREATE(vtkPolyData, pmesh);
     VTK_CREATE(vtkPolygon, polygon);
@@ -739,8 +840,7 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vt
       if (VERBOSE) std::cout  << "Filled a not nested loop." << std::endl;
       //sub_mesh= NULL;
 
-   }/////////////////Fill not nested loop done.
-    
+    }/////////////////Fill not nested loop done.
 
     // if(P_VERBOSE) std::cout << "Executing vtkContourTriangulator..." << std::endl;
     // ct->AddObserver(vtkCommand::ProgressEvent, progressCallback);
@@ -775,7 +875,9 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vt
     // ////write test output done.
 
 
-    nl++;
+    nl++;   
+    printf("A total of %d loops (of at least %d accounted loops) filled [%5.1f%%]\n", nl, pcnl-nsl, nl*100.0/(pcnl-nsl));
+
     //if(V) std::cout  << "Number of filled loops so far " << nl << std::endl;
     if(nl != (nnl + nnnl)){
       //std::cerr  << "nl != nnl + nnnl: " << nl << " != " << nnl << " + " << nnnl << std::endl;
@@ -813,94 +915,99 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vt
 }
 
  
-  int main(int argc, char* argv[]){
+int main(int argc, char* argv[]){
 
-    if( argc != 4 ) {
-      std::cerr << "Usage: " << argv[0];
-      std::cerr << " inputGraph";
-      std::cerr << " outputGraph";
-      std::cerr << " MinLoopNodes";
-      std::cerr << std::endl;  
-      return EXIT_FAILURE;
-    }
-
-    if(!(strcasestr(argv[1],".vtp"))) {
-      std::cout << "The input should end with .vtp" << std::endl; 
-      return -1;
-    }
-
-    if(!(strcasestr(argv[2],".vtp"))) {
-      std::cout << "The output should end with .vtp" << std::endl; 
-      return -1;
-    }
-
-    VTK_CREATE(vtkCallbackCommand, progressCallback);
-    progressCallback->SetCallback(ProgressFunction);
-
-
-    //vtkXMLPolyDataReader *reader = vtkXMLPolyDataReader::New(); //*.vtp
-    vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();  
-
-    reader->SetFileName(argv[1]);
-    reader->Update();
-
-    ////cleaning should be done before this program is called to make sure the rootID does not change!!!
-
-    // VTK_CREATE(vtkCleanPolyData, cleanFilter);
-    // cleanFilter->SetInputConnection(reader->GetOutputPort());
-    // cleanFilter->Update();
-
-    // vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
-    // triangleFilter->SetInputConnection(cleanFilter->GetOutputPort());
-    // triangleFilter->Update();
-    
-    // vtkSmartPointer<vtkExtractEdges> extractEdges = vtkSmartPointer<vtkExtractEdges>::New();
-    // extractEdges->SetInputConnection(triangleFilter->GetOutputPort());
-    // extractEdges->Update();
-   
-    // std::cout << "Prepared mesh!" << std::endl;
-
-    VTK_CREATE(vtkPolyData, connected_filled_loops);
-
-    vtkSmartPointer<vtkPolyData> sub_loop_mesh;
-    sub_loop_mesh= reader->GetOutput();
-
-    int   nl= 0;
-    int  nnl= 0;
-    int nnnl= 0;
-    int  nsl= 0;
-
-    int nol= 0;
-
-    int MinLoopNodes= atoi(argv[3]);
-
-    while(sub_loop_mesh){
-      sub_loop_mesh= fill_loops(sub_loop_mesh, connected_filled_loops, MinLoopNodes, &nl, &nnl, &nnnl, &nsl);
-      nol++;
-      if(V) std::cout << "fill_loops executed " << nol << " times." << std::endl;
-      if(V) std::cout  << "Number of filled loops so far " << nl << std::endl;
-      if(V) std::cout  << "Number of filled nested loops so far " << nnl << std::endl;
-      if(V) std::cout  << "Number of filled not nested loops so far " << nnnl << std::endl;
-    }//while(sub_loop_mesh)
-
-    std::cout << std::endl;
-    std::cout << std::endl;
-
-    printf("Found %d loops (%d nested loops, %d not nested loops).\n", nl, nnl, nnnl);
-    printf("The most complex bi-connected component contained at least %d sub-loops.\n", nol);
-    printf("Additional %d loops contained less than %d nodes and were skipped.\n\n", nsl, MinLoopNodes);
-
-    vtkSmartPointer<vtkXMLPolyDataWriter> writer= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-    writer->SetFileName(argv[2]);
-    //writer->SetInputConnection(graphToPolyData->GetOutputPort());
-    //writer->SetInputConnection(dggp->GetOutputPort());
-    writer->SetInputData(connected_filled_loops);
-    //writer->SetCompression(true);
-    writer->Write();
-    std::cout << "Wrote " << argv[2] << std::endl;
-
-    std::cout << "All done!" << std::endl;
-
-
-    return EXIT_SUCCESS;
+  if( argc != 4 ) {
+    std::cerr << "Usage: " << argv[0];
+    std::cerr << " inputGraph";
+    std::cerr << " outputGraph";
+    std::cerr << " MinLoopNodes";
+    std::cerr << std::endl;  
+    return EXIT_FAILURE;
   }
+
+  if(!(strcasestr(argv[1],".vtp"))) {
+    std::cout << "The input should end with .vtp" << std::endl; 
+    return -1;
+  }
+
+  if(!(strcasestr(argv[2],".vtp"))) {
+    std::cout << "The output should end with .vtp" << std::endl; 
+    return -1;
+  }
+
+  VTK_CREATE(vtkCallbackCommand, progressCallback);
+  progressCallback->SetCallback(ProgressFunction);
+
+
+  //vtkXMLPolyDataReader *reader = vtkXMLPolyDataReader::New(); //*.vtp
+  vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();  
+
+  reader->SetFileName(argv[1]);
+  reader->Update();
+
+  ////cleaning should be done before this program is called to make sure the rootID does not change!!!
+
+  // VTK_CREATE(vtkCleanPolyData, cleanFilter);
+  // cleanFilter->SetInputConnection(reader->GetOutputPort());
+  // cleanFilter->Update();
+
+  // vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
+  // triangleFilter->SetInputConnection(cleanFilter->GetOutputPort());
+  // triangleFilter->Update();
+    
+  // vtkSmartPointer<vtkExtractEdges> extractEdges = vtkSmartPointer<vtkExtractEdges>::New();
+  // extractEdges->SetInputConnection(triangleFilter->GetOutputPort());
+  // extractEdges->Update();
+   
+  // std::cout << "Prepared mesh!" << std::endl;
+
+  VTK_CREATE(vtkPolyData, connected_filled_loops);
+
+  vtkSmartPointer<vtkPolyData> sub_loop_mesh;
+  sub_loop_mesh= reader->GetOutput();
+
+  int   nl= 0;
+  int  nnl= 0;
+  int nnnl= 0;
+  int  nsl= 0;
+
+  int nol= 0;
+
+  int MinLoopNodes= atoi(argv[3]);
+
+  int pcnl= CalcNumberOfLoops(sub_loop_mesh);
+
+  printf("Expecting %d loops (progress report referes to this).\n", pcnl);
+
+  while(sub_loop_mesh){
+    sub_loop_mesh= fill_loops(sub_loop_mesh, connected_filled_loops, MinLoopNodes, &nl, &nnl, &nnnl, &nsl, pcnl);
+    nol++;
+    if(V) std::cout  << "fill_loops executed " << nol << " times." << std::endl;
+    if(V) std::cout  << "Number of filled loops so far " << nl << std::endl;
+    if(V) std::cout  << "Number of filled nested loops so far " << nnl << std::endl;
+    if(V) std::cout  << "Number of filled not nested loops so far " << nnnl << std::endl;
+    if(V) std::cout  << "Number of skipped loops so far " << nsl << std::endl;
+  }//while(sub_loop_mesh)
+
+  std::cout << std::endl;
+  std::cout << std::endl;
+
+  printf("Found %d loops (%d nested loops, %d not nested loops).\n", nl, nnl, nnnl);
+  printf("The most complex bi-connected component contained at least %d sub-loops.\n", nol);
+  printf("Additional %d loops contained less than %d nodes and were skipped.\n\n", nsl, MinLoopNodes);
+
+  vtkSmartPointer<vtkXMLPolyDataWriter> writer= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+  writer->SetFileName(argv[2]);
+  //writer->SetInputConnection(graphToPolyData->GetOutputPort());
+  //writer->SetInputConnection(dggp->GetOutputPort());
+  writer->SetInputData(connected_filled_loops);
+  //writer->SetCompression(true);
+  writer->Write();
+  std::cout << "Wrote " << argv[2] << std::endl;
+
+  std::cout << "All done!" << std::endl;
+
+
+  return EXIT_SUCCESS;
+}
