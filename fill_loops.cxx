@@ -7,10 +7,10 @@
 //05: switch from VERTEX ID-selection to EDGE threshold-selections
 //{06: append performance improvements (not working yet)}
 //07: counting all loops (and sub-loops)
-//08: calc total number of loops before loop filling
+//08: calc total number of loops before loop filling (using BoosBFS counting backedges) <- not finished!
+//09: calc total number of loops before loop filling using Euler characteristic ;-)
 
 //todo: 
-// - compute Euler Characteristics to optain total numer of loops before head and for total progress report;-)
 // - save skippted graphes too for manual checking
 // - use openMP for main for-loop
 
@@ -89,14 +89,67 @@ void ProgressFunction( vtkObject* caller, long unsigned int eventId, void* clien
     }
 
 
-int CalcNumberOfLoops(vtkSmartPointer<vtkPolyData> in_mesh){
-
-  const char* bbfs_oaname= "BFS";
+int CalcNumberOfLoops(vtkSmartPointer<vtkGraph> graph){
 
   VTK_CREATE(vtkCallbackCommand, progressCallback);
   progressCallback->SetCallback(ProgressFunction);
 
-  ///////////////// Convert vtkPolyData to vtkGraph
+  VTK_CREATE(vtkBoostConnectedComponents,bcc);
+  bcc->SetInputData(graph);
+
+  if(P_VERBOSE) std::cout << "Executing vtkBoostConnectedComponents..." << std::endl;
+  bcc->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+  //bcc->SetOutputArrayName("component");
+  bcc->Update();
+  if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
+
+ 
+  if(!bcc->GetOutput()->GetVertexData()->GetArray("component")){
+    std::cerr  << "No array named \"component\" in bcc->GetOutput()!"  << std::endl;
+    exit(1);
+    //return sub_mesh= NULL;
+  }
+
+
+  vtkSmartPointer<vtkIntArray> cc_array= vtkIntArray::SafeDownCast(bcc->GetOutput()->GetVertexData()->GetArray("component"));
+
+  if(cc_array){
+    if(VERBOSE) std::cout  << " GetNumberOfComponents() " << cc_array->GetNumberOfComponents() << " cc_array->GetNumberOfTuples() " << cc_array->GetNumberOfTuples() << std::endl;
+  }
+  else{
+    std::cerr  << "No vtkIntArray named \"component\" in bcc->GetOutput()!"  << std::endl;
+    exit(1);
+    //return sub_mesh= NULL;
+  }
+
+  vtkIdType n_cc= 0;
+  for(vtkIdType i = 0; i < cc_array->GetNumberOfTuples(); i++){
+    //int v= int(cc_array->GetComponent(i,0));
+    int v= cc_array->GetValue(i);
+    if(VERBOSE) std::cout  << "Entry " << i << " has value: " << v  << std::endl;
+    if (v > n_cc){
+      n_cc++;
+      if(v != n_cc){
+	std::cerr  << "entry " << i << " has value: " << v << " != n_cc " << n_cc  << std::endl;
+	exit(1);
+      }	
+    }
+  }
+  
+  if(VERBOSE) std::cout  << "Graph contains " << n_cc << " connected components." << std::endl;
+
+
+  int euler= graph->GetNumberOfVertices() - graph->GetNumberOfEdges(); //skeleton graphs only consists of vertices and edges so no faces or volume-elements need to be taken into account!
+   
+  return(n_cc - euler); //euler== #cc - #loops ////no voids exist if graph only consists of vertices and edges
+  
+}
+
+
+int CalcNumberOfLoops(vtkSmartPointer<vtkPolyData> in_mesh){
+
+  VTK_CREATE(vtkCallbackCommand, progressCallback);
+  progressCallback->SetCallback(ProgressFunction);
 
   VTK_CREATE(vtkPolyDataToGraph, polyDataToGraphFilter);
   polyDataToGraphFilter->SetInputData(in_mesh);
@@ -106,84 +159,7 @@ int CalcNumberOfLoops(vtkSmartPointer<vtkPolyData> in_mesh){
   polyDataToGraphFilter->Update();
   if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
 
-  ///////////////// Convert vtkPolyData to vtkGraph done.
-
-  ///////////////// convert undireced graph to a directed with BFS
-
-  VTK_CREATE(vtkBoostBreadthFirstSearch, bbfs);
-  bbfs->AddInputConnection(polyDataToGraphFilter->GetOutputPort());
-  bbfs->SetOriginVertex(0);
-  bbfs->SetOutputArrayName(bbfs_oaname);
-  
-  if(P_VERBOSE) std::cout << "Executing vtkBoostBreadthFirstSearch..." << std::endl;
-  bbfs->AddObserver(vtkCommand::ProgressEvent, progressCallback);
-  bbfs->Update();
-  if(P_VERBOSE) std::cout  << std::endl << "done." << std::endl;
-
-  ////write test output 
-  vtkSmartPointer<vtkGraphToPolyData> tgraphToPolyData= vtkSmartPointer<vtkGraphToPolyData>::New();
-  tgraphToPolyData->SetInputData(bbfs->GetOutput());
-  tgraphToPolyData->Update();
-  vtkSmartPointer<vtkXMLPolyDataWriter> twriter= vtkSmartPointer<vtkXMLPolyDataWriter>::New();
-  twriter->SetFileName("test_cnol.vtp");
-  twriter->SetInputConnection(tgraphToPolyData->GetOutputPort());
-  twriter->Write();
-  std::cout   << "Wrote test_cnol.vtp" << std::endl;
-  ////write test output done.
-
-
-  ///////////////// convert undireced graph to a directed with BFS done.
-
-  vtkSmartPointer<vtkGraph> graph=  bbfs->GetOutput();
-
-  ///// test if bbfs yields a vtkDirectedGraph 
-  ///// http://vtk.org/gitweb?p=VTK.git;a=blob;f=Common/DataModel/Testing/Cxx/TestGraph.cxx#l133
-  VTK_CREATE(vtkDirectedGraph, dg);
-
-  if (!dg->CheckedShallowCopy(graph)){
-    std::cerr << "vtkBoostBreadthFirstSearch does not yield a vtkDirectedGraph!" << std::endl;
-  }
-  /////test if bbfs yields a vtkDirectedGraph done.
-
-  ///////////////// find and count the number of nodes that have back-edges
-  //// not using edges but BFS node numbers (not sure if bbfs yiels a vtkDirectedGraph)
-
-  int nol= 0;
-
-  VTK_CREATE(vtkVertexListIterator, it);
-  graph->GetVertices(it);
-
-  vtkSmartPointer<vtkIntArray> array0= vtkIntArray::SafeDownCast(graph->GetVertexData()->GetArray(bbfs_oaname));
-
-  bool ans;
-  while(ans= it->HasNext()){ 
-    vtkIdType nextVertex= it->Next();
-    int nextVertex_v= array0->GetValue(nextVertex);
-
-    VTK_CREATE(vtkAdjacentVertexIterator, itc); 
-    graph->GetAdjacentVertices(nextVertex, itc);
-	
-    int num_of_backadjacent_vertices= 0;
-    while (itc->HasNext()){
-      vtkIdType u = itc->Next();
-      int u_v= array0->GetValue(u);
-      if (u_v < nextVertex_v){
-	num_of_backadjacent_vertices++;
-      }
-    }
-
-    if (num_of_backadjacent_vertices > 1){ //found a loop convergence vertex, disregard normal and end vertices
-      //nol++;   
-      nol+= num_of_backadjacent_vertices - 1; //account not only for simple loops but also nested loops, ONLY counting the number of smallest loop (paths)!
-    }
-    
-  }
-  
-
-  ///////////////// find and count the number of nodes that have back-edges done.
-
-  return nol;
-
+  return CalcNumberOfLoops(polyDataToGraphFilter->GetOutput());
 }
 
 
@@ -235,7 +211,7 @@ vtkIdType getEndpointId(vtkSmartPointer<vtkPolyData> mesh){
 }
 
 
-vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vtkSmartPointer<vtkPolyData> connected_filled_loops, int MinLoopNodes, int* pnl, int* pnnl, int* pnnnl, int* pnsl, int pcnl){
+vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vtkSmartPointer<vtkPolyData> connected_filled_loops, int MinLoopNodes, int* pnl, int* pnnl, int* pnnnl, int* pnsl, int const pcnl){
 
 
   int   nl=   *pnl;
@@ -454,9 +430,9 @@ vtkSmartPointer<vtkPolyData> fill_loops(vtkSmartPointer<vtkPolyData> in_mesh, vt
         std::cout   << "Wrote testc.vtp" << std::endl;
         ////write test output done.
 	exit(1);
-      }	
-      n_cc++;
-    }
+        }
+      //n_cc++; //remainder?
+      }
   }
   
   if(VERBOSE) std::cout  << "sub-mesh contains " << n_cc << " loops." << std::endl;
@@ -976,7 +952,7 @@ int main(int argc, char* argv[]){
 
   int MinLoopNodes= atoi(argv[3]);
 
-  int pcnl= CalcNumberOfLoops(sub_loop_mesh);
+  int const pcnl= CalcNumberOfLoops(sub_loop_mesh);
 
   printf("Expecting %d loops (progress report referes to this).\n", pcnl);
 
