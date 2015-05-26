@@ -1,0 +1,16 @@
+
+- star-skel_3D_11x11x11.tif and star-skel_3D_15x15x15.tif manually drawn in fiji
+
+~/itk/simple/build_itk4_iana0/pad_constant star-skel_3D_11x11x11.mha star-skel_3D_11x11x11_p+5.tif 0 5 5 5 5 5 5
+
+- max3D with fiji
+
+~/itk/simple_without-git/build_itk4_iana0/skeletonize_3D_01 star-skel_3D_15x15x15_p+3_max3D.tif star-skel_3D_15x15x15_p+3_max3D_vo-skel.tif
+
+
+~/vtk/skel-graph/build_iana0/vo-skel2poly star-skel_3D_15x15x15_p+3.tif star-skel_3D_15x15x15_p+3_v2p+0.vtp 0
+
+~/vtk/skel-graph/build_iana0/vo-skel2poly star-skel_3D_15x15x15_p+3.tif star-skel_3D_15x15x15_p+3_v2p+2.vtp 2
+
+
+
