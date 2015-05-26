@@ -157,10 +157,10 @@ int main(int argc, char *argv[]){
             if(!mergePoints->InsertUniquePoint(point0, point0Id))
                 if(VERBOSE) std::cout << "Primary point already existed: " << point0[0] << "; " << point0[1] << "; " << point0[2] <<  std::endl;
 
-            it.SetPixel(it.GetCenterNeighborhoodIndex(), doneValue); //to keept track where we have worked already
-            for (unsigned i = 1; i < it.Size(); i++){ //skipping centre pixel???
-                if ((it.GetPixel(i) == fg))
-                    {
+            it.SetCenterPixel(doneValue); //same as it.SetPixel(it.GetCenterNeighborhoodIndex(), doneValue); //to keept track where we have worked already
+            for (unsigned i= 0; i < it.Size(); i++){ //not skipping center pixel at it.GetCenterNeighborhoodIndex() (==13 for 3x3x3)!!! looping see e.g.: http://www.itk.org/Doxygen47/html/Examples_2Iterators_2NeighborhoodIterators6_8cxx-example.html
+		//if(i == it.GetCenterNeighborhoodIndex()) continue; //skips center pixel, not needed with it.SetCenterPixel(doneValue)
+                if ((it.GetPixel(i) == fg)){//skips center pixel with it.SetCenterPixel(doneValue)
 
                     if(VERBOSE) std::cout << "GetIndex" << std::endl;
                     i2dA(it.GetIndex(i), point);
