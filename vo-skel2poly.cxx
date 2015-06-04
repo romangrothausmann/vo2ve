@@ -5,6 +5,8 @@
 //03: clean up
 
 //ToDo:
+//If a path of length pathLength already exists, an additional line does not necessarily create a loop of length pathLength+1 !!!! see e.g. extract_01_skel-ana_01_vskel_pruned-ends_ana_x136y78z47_p+2.mha
+//- code needs to be modified to actually check for the cylcle length AFTER the new line as been added and if it creates a loop below maxLoopLengh remove the line again
 //- only run iterator with half of the radius filled with 1, track keeping not needed than any more?
 
 #include <itkImageFileReader.h>
@@ -123,7 +125,7 @@ int main(int argc, char *argv[]){
 
     typedef itk::NeighborhoodIterator<InputImageType> NeighborhoodIteratorType;
     NeighborhoodIteratorType::RadiusType radius;
-    radius.Fill(1);
+    radius.Fill(1); //26-connectivity
     NeighborhoodIteratorType it(radius, image, region);
 
     InputPixelType fg= 255;
@@ -177,7 +179,7 @@ int main(int argc, char *argv[]){
                         //std::cout << "Line would create a loop of length: " << +pathLength << std::endl;
                         if(pathLength){
                             //if(VERBOSE)
-                            std::cout << "Line would create a loop of length: " << +pathLength << std::endl;
+                            std::cout << "A path of length " << +pathLength << " already exists!" << std::endl; //does not necessarily create a loop of length pathLength+1 !!!!
                             continue;
                             }
                         }
@@ -213,6 +215,10 @@ int main(int argc, char *argv[]){
     Pwriter->SetFileName(argv[2]);
     Pwriter->SetInputData(polydata);//will segfault if Delete was called on points and lines before
     Pwriter->Update();
+
+    std::cerr << "# verts: " << polydata->GetNumberOfPoints() << std::endl;
+    std::cerr << "# lines: " << polydata->GetNumberOfCells() << std::endl;
+    std::cout << "EPC(26)= " << polydata->GetNumberOfPoints() - polydata->GetNumberOfCells() << std::endl;
 
     return EXIT_SUCCESS;
     }
