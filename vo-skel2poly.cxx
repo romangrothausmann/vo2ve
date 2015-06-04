@@ -146,40 +146,40 @@ int main(int argc, char *argv[]){
     vtkIdType point0Id, pointId;
     double point0[3], point[3];
 
-    std::cout << "Starting iteration!" << std::endl;
+    std::cerr << "Starting iteration!" << std::endl;
     InputImageType::RegionType::SizeValueType counter= 0;
     for (it.GoToBegin(); !it.IsAtEnd(); ++it){
 
         InputPixelType cpv= it.GetCenterPixel();
         if (cpv == fg){
-            if(VERBOSE) std::cout << "fg point found at: " << it.GetIndex();
+            if(VERBOSE) std::cerr << "fg point found at: " << it.GetIndex();
             i2dA(it.GetIndex(),point0);//it.GetIndex() == it.GetIndex(it.GetCenterNeighborhoodIndex())
-            if(VERBOSE) std::cout << ": " << point0[0] << "; " << point0[1] << "; " << point0[2] << std::endl;
+            if(VERBOSE) std::cerr << ": " << point0[0] << "; " << point0[1] << "; " << point0[2] << std::endl;
 
             if(!mergePoints->InsertUniquePoint(point0, point0Id))
-                if(VERBOSE) std::cout << "Primary point already existed: " << point0[0] << "; " << point0[1] << "; " << point0[2] <<  std::endl;
+                if(VERBOSE) std::cerr << "Primary point already existed: " << point0[0] << "; " << point0[1] << "; " << point0[2] <<  std::endl;
 
             it.SetCenterPixel(doneValue); //same as it.SetPixel(it.GetCenterNeighborhoodIndex(), doneValue); //to keept track where we have worked already
             for (unsigned i= 0; i < it.Size(); i++){ //not skipping center pixel at it.GetCenterNeighborhoodIndex() (==13 for 3x3x3)!!! looping see e.g.: http://www.itk.org/Doxygen47/html/Examples_2Iterators_2NeighborhoodIterators6_8cxx-example.html
 		//if(i == it.GetCenterNeighborhoodIndex()) continue; //skips center pixel, not needed with it.SetCenterPixel(doneValue)
                 if ((it.GetPixel(i) == fg)){//skips center pixel with it.SetCenterPixel(doneValue)
 
-                    if(VERBOSE) std::cout << "GetIndex" << std::endl;
+                    if(VERBOSE) std::cerr << "GetIndex" << std::endl;
                     i2dA(it.GetIndex(i), point);
-                    if(VERBOSE) std::cout << ": " << point[0] << "; " << point[1] << "; " << point[2] << std::endl;
+                    if(VERBOSE) std::cerr << ": " << point[0] << "; " << point[1] << "; " << point[2] << std::endl;
 
                     if(!mergePoints->InsertUniquePoint(point, pointId)){//only existing points can cause loops
-                        if(VERBOSE) std::cout << "Point already existed: " << point[0] << "; " << point[1] << "; " << point[2] << std::endl;//should never happen when only half the radius is filled
+                        if(VERBOSE) std::cerr << "Point already existed: " << point[0] << "; " << point[1] << "; " << point[2] << std::endl;//should never happen when only half the radius is filled
                         // polydata->SetPoints(points);
                         // polydata->SetLines(lines);
                         polydata->DeleteCells();//must be called before a successive call to BuildLinks
                         polydata->BuildLinks();//has to be called before pathExists
-                        if(VERBOSE) std::cout << "BuildLinks" << std::endl;
+                        if(VERBOSE) std::cerr << "BuildLinks" << std::endl;
                         unsigned char pathLength= pathExists(point0Id, pointId, polydata, 0, maxPathLength);
-                        //std::cout << "Line would create a loop of length: " << +pathLength << std::endl;
+                        //std::cerr << "Line would create a loop of length: " << +pathLength << std::endl;
                         if(pathLength){
                             //if(VERBOSE)
-                            std::cout << "A path of length " << +pathLength << " already exists!" << std::endl; //does not necessarily create a loop of length pathLength+1 !!!!
+                            std::cerr << "A path of length " << +pathLength << " already exists!" << std::endl; //does not necessarily create a loop of length pathLength+1 !!!!
                             continue;
                             }
                         }
@@ -196,10 +196,10 @@ int main(int argc, char *argv[]){
             }
 
         counter++;
-        fprintf(stdout, "\rprogress: %6.2f%%", counter*100.0/region.GetNumberOfPixels());
+        fprintf(stderr, "\rprogress: %6.2f%%", counter*100.0/region.GetNumberOfPixels());
 
         }
-    std::cout << "Iteration done." << std::endl;
+    std::cerr << "Iteration done." << std::endl;
 
     ////should Squeeze + SetPoints + Delete only be done in a filter as in vtkCleanPolyData.cxx?
     // points->Squeeze();//compress dynamic array as no further extension follows
@@ -209,7 +209,7 @@ int main(int argc, char *argv[]){
     // lines->Squeeze();//compress dynamic array as no further extension follows
     // polydata->SetLines(lines);//already done above, needed here again?
     // lines->Delete();//decrement reference count
-    // std::cout << "Squeezing done." << std::endl;
+    // std::cerr << "Squeezing done." << std::endl;
 
     vtkSmartPointer<vtkXMLPolyDataWriter> Pwriter = vtkSmartPointer<vtkXMLPolyDataWriter>::New();
     Pwriter->SetFileName(argv[2]);
