@@ -59,7 +59,6 @@ install (TARGETS ${CurrentExe} RUNTIME DESTINATION bin)
 
 # ##ToDo
 # -add tests for each file in e.g. tests/vo-skel2poly/auto/
-# -- testing if vo-skel2poly results in the same EPC as ~/octave/scripts/euler3D.m
-# --- copy ~/octave/scripts/euler3D.m to e.g. tests/scripts/
+# -- testing if vo-skel2poly results in the same EPC as tests/scripts/euler3D.m
 # --- add test for correct execution of tests/scripts/euler3D.m at the beginning
 

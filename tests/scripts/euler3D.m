@@ -1,6 +1,8 @@
 #!/usr/bin/octave -q
 ##script to execute imEuler3d from http://in.mathworks.com/matlabcentral/fileexchange/33690-geometric-measures-in-2d-3d-images
 
+##ToDo
+# add imEuler3d and mha_read_volume as functions to the script
 
 addpath ("~/octave/imMinkowski/");
 
@@ -19,8 +21,7 @@ else
   # endif
 endif
 
-#printf("dim= %d\n", ndims(i3d))
-printf("EPC(6)= %d\n", imEuler3d(i3d, 6))
+#printf("EPC(6)= %d\n", imEuler3d(i3d, 6))
 printf("EPC(26)= %d\n", imEuler3d(i3d, 26))
 
 
