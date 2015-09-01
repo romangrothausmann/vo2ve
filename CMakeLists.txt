@@ -39,7 +39,7 @@ SET(Libraries
 
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-SET(CurrentExe "skel2graph")
+SET(CurrentExe "poly2graph")
 ADD_EXECUTABLE(${CurrentExe} ${CurrentExe}.cxx 
   ${VTKGraphConversionsDir}/vtkPolyDataToGraph.cxx)
 TARGET_LINK_LIBRARIES(${CurrentExe} ${Libraries})
