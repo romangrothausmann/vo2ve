@@ -11,6 +11,7 @@
 //09: calc total number of loops before loop filling using Euler characteristic ;-)
 
 //todo: 
+// - correct loop-filling: current breaking of loops can lead to the loss of other shortest loop paths that would share the deleted segment. Possible solution: do not break loop, instead: sVertex= eVertex and use Repell Vertices (set from already done loops), might need modification of vtkDijkstraGraphGeodesicPath to not include zero-length path or checking of all paths
 // - save skippted graphes too for manual checking
 // - use openMP for main for-loop
 
